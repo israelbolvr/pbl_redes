@@ -4,4 +4,4 @@ class Passageiro:
         self.cpf = cpf
         self.data_nasc = data_nasc
         self.endereco = endereco
-        self.senha = senha
+        self.senha = senha  # hashed password

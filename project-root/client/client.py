@@ -1,12 +1,14 @@
 import socket
-import pickle
+import json
+import time
+import os
 
 def login(sock):
     cpf = input("Digite seu CPF: ")
     senha = input("Digite sua senha: ")
     request = {'action': 'login', 'cpf': cpf, 'senha': senha}
-    sock.send(pickle.dumps(request))
-    response = pickle.loads(sock.recv(4096))
+    sock.sendall(json.dumps(request).encode('utf-8'))
+    response = json.loads(sock.recv(4096).decode('utf-8'))
     if response == "Senha incorreta":
         print("Senha incorreta. Tente novamente.")
         return False
@@ -21,8 +23,8 @@ def login(sock):
         data_nasc = input("Digite sua data de nascimento (AAAA-MM-DD): ")
         endereco = input("Digite seu endereço: ")
         request.update({'nome': nome, 'data_nasc': data_nasc, 'endereco': endereco})
-        sock.send(pickle.dumps(request))
-        response = pickle.loads(sock.recv(4096))
+        sock.sendall(json.dumps(request).encode('utf-8'))
+        response = json.loads(sock.recv(4096).decode('utf-8'))
         if response == "Cadastro e login bem-sucedidos":
             print("Cadastro e login bem-sucedidos!")
             return True
@@ -30,14 +32,21 @@ def login(sock):
             print("Falha no cadastro. Tente novamente.")
             return False
 
-def client(host='localhost', port=8082):
+def client():
+    host = os.environ.get('SERVER_HOST', 'server')
+    port = int(os.environ.get('SERVER_PORT', '8082'))
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((host, port))
-
+    connected = False
+    while not connected:
+        try:
+            sock.connect((host, port))
+            connected = True
+        except ConnectionRefusedError:
+            print("Connection refused, retrying in 2 seconds...")
+            time.sleep(2)
     logged_in = False
     while not logged_in:
         logged_in = login(sock)
-
     try:
         while True:
             print("\nEscolha uma ação:")
@@ -46,33 +55,39 @@ def client(host='localhost', port=8082):
             print("3. Reservar uma vaga")
             print("4. Sair")
             escolha = input("Digite o número da ação desejada: ")
-
             if escolha == '1':
                 request = {'action': 'listar_voos'}
-                sock.send(pickle.dumps(request))
-                response = pickle.loads(sock.recv(4096))
+                sock.sendall(json.dumps(request).encode('utf-8'))
+                response = json.loads(sock.recv(4096).decode('utf-8'))
                 print("Voos disponíveis:", response)
-
             elif escolha == '2':
-                voo_id = int(input("Digite o ID do voo: "))
+                try:
+                    voo_id = int(input("Digite o ID do voo: "))
+                except ValueError:
+                    print("ID do voo inválido.")
+                    continue
                 request = {'action': 'listar_vagas', 'voo_id': voo_id}
-                sock.send(pickle.dumps(request))
-                response = pickle.loads(sock.recv(4096))
+                sock.sendall(json.dumps(request).encode('utf-8'))
+                response = json.loads(sock.recv(4096).decode('utf-8'))
                 print(f"Vagas disponíveis no voo {voo_id}:", response)
-
             elif escolha == '3':
-                voo_id = int(input("Digite o ID do voo: "))
+                try:
+                    voo_id = int(input("Digite o ID do voo: "))
+                except ValueError:
+                    print("ID do voo inválido.")
+                    continue
                 assento = input("Digite o número do assento: ")
                 request = {'action': 'reservar_vaga', 'voo_id': voo_id, 'assento': assento}
-                sock.send(pickle.dumps(request))
-                response = pickle.loads(sock.recv(4096))
+                sock.sendall(json.dumps(request).encode('utf-8'))
+                response = json.loads(sock.recv(4096).decode('utf-8'))
                 print(response)
-
             elif escolha == '4':
                 print("Saindo...")
                 break
-
+            else:
+                print("Opção inválida.")
     finally:
         sock.close()
 
-client()
+if __name__ == "__main__":
+    client()

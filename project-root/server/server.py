@@ -1,12 +1,14 @@
 import socket
-import pickle
+import json
 import threading
 from Models.Voo import Voo
 from Models.Vaga import Vaga
 from Models.Passageiro import Passageiro
+import bcrypt
 
 voos = []
 passageiros = []
+lock = threading.Lock()
 
 def mock_voos():
     voo1 = Voo(1, "2024-09-15", "Belém", "Fortaleza")
@@ -27,51 +29,55 @@ def handle_client(client_socket):
         passageiro = None
 
         while not logged_in:
-            request = client_socket.recv(4096)
-            data = pickle.loads(request)
-            action = data.get('action')
+            data = client_socket.recv(4096)
+            if not data:
+                break
+            request = json.loads(data.decode('utf-8'))
+            action = request.get('action')
 
             if action == 'login':
-                cpf = data.get('cpf')
-                senha = data.get('senha')
-                passageiro = next((p for p in passageiros if p.cpf == cpf), None)
-                if passageiro:
-                    if passageiro.senha == senha:
-                        response = "Login bem-sucedido"
-                        logged_in = True
+                cpf = request.get('cpf')
+                senha = request.get('senha')
+                with lock:
+                    passageiro = next((p for p in passageiros if p.cpf == cpf), None)
+                    if passageiro:
+                        if bcrypt.checkpw(senha.encode('utf-8'), passageiro.senha):
+                            response = "Login bem-sucedido"
+                            logged_in = True
+                        else:
+                            response = "Senha incorreta"
                     else:
-                        response = "Senha incorreta"
-                else:
-                    nome = data.get('nome')
-                    data_nasc = data.get('data_nasc')
-                    endereco = data.get('endereco')
-                    novo_passageiro = Passageiro(nome, cpf, data_nasc, endereco, senha)
-                    passageiros.append(novo_passageiro)
-                    response = "Cadastro e login bem-sucedidos"
-                    logged_in = True
-                    passageiro = novo_passageiro
-                client_socket.send(pickle.dumps(response))
+                        nome = request.get('nome')
+                        data_nasc = request.get('data_nasc')
+                        endereco = request.get('endereco')
+                        hashed_senha = bcrypt.hashpw(senha.encode('utf-8'), bcrypt.gensalt())
+                        novo_passageiro = Passageiro(nome, cpf, data_nasc, endereco, hashed_senha)
+                        passageiros.append(novo_passageiro)
+                        response = "Cadastro e login bem-sucedidos"
+                        logged_in = True
+                        passageiro = novo_passageiro
+                client_socket.sendall(json.dumps(response).encode('utf-8'))
 
         while True:
-            request = client_socket.recv(4096)
-            if not request:
+            data = client_socket.recv(4096)
+            if not data:
                 break
 
-            data = pickle.loads(request)
-            action = data.get('action')
+            request = json.loads(data.decode('utf-8'))
+            action = request.get('action')
 
             if action == 'listar_voos':
                 response = [(voo.id_voo, voo.local_saida, voo.local_destino) for voo in voos]
             elif action == 'listar_vagas':
-                voo_id = data.get('voo_id')
+                voo_id = request.get('voo_id')
                 voo = next((v for v in voos if v.id_voo == voo_id), None)
                 if voo:
                     response = [(vaga.assento, vaga.status) for vaga in voo.listar_vagas_disponiveis()]
                 else:
                     response = "Voo não encontrado"
             elif action == 'reservar_vaga':
-                voo_id = data.get('voo_id')
-                assento = data.get('assento')
+                voo_id = request.get('voo_id')
+                assento = request.get('assento')
                 voo = next((v for v in voos if v.id_voo == voo_id), None)
                 if voo:
                     vaga = next((v for v in voo.vagas if v.assento == assento), None)
@@ -84,7 +90,7 @@ def handle_client(client_socket):
             else:
                 response = "Ação inválida"
 
-            client_socket.send(pickle.dumps(response))
+            client_socket.sendall(json.dumps(response).encode('utf-8'))
     except Exception as e:
         print(f"Erro ao lidar com cliente: {e}")
     finally:
@@ -93,11 +99,13 @@ def handle_client(client_socket):
 def client_thread(client_socket):
     handle_client(client_socket)
 
-def server(host='localhost', port=8082):
+def server():
+    host = '0.0.0.0'
+    port = 8082
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen(5)
-    print("Servidor rodando e aguardando conexões...")
+    print(f"Servidor rodando e aguardando conexões em {host}:{port}...")
 
     while True:
         client_socket, addr = server_socket.accept()
