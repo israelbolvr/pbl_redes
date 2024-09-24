@@ -1,93 +1,76 @@
 import socket
 import json
 import time
-import os
 
-def login(sock):
-    cpf = input("Digite seu CPF: ")
-    senha = input("Digite sua senha: ")
-    request = {'action': 'login', 'cpf': cpf, 'senha': senha}
-    sock.sendall(json.dumps(request).encode('utf-8'))
-    response = json.loads(sock.recv(4096).decode('utf-8'))
-    if response == "Senha incorreta":
-        print("Senha incorreta. Tente novamente.")
-        return False
-    elif response == "Login bem-sucedido":
-        print("Login bem-sucedido!")
-        return True
-    elif response == "Cadastro e login bem-sucedidos":
-        print("Cadastro e login bem-sucedidos!")
-        return True
-    else:
-        nome = input("Digite seu nome: ")
-        data_nasc = input("Digite sua data de nascimento (AAAA-MM-DD): ")
-        endereco = input("Digite seu endereço: ")
-        request.update({'nome': nome, 'data_nasc': data_nasc, 'endereco': endereco})
-        sock.sendall(json.dumps(request).encode('utf-8'))
-        response = json.loads(sock.recv(4096).decode('utf-8'))
-        if response == "Cadastro e login bem-sucedidos":
-            print("Cadastro e login bem-sucedidos!")
-            return True
-        else:
-            print("Falha no cadastro. Tente novamente.")
-            return False
+MAX_RETRIES = 5  # Número máximo de tentativas de reconexão
+RETRY_DELAY = 3  # Intervalo em segundos entre tentativas de reconexão
 
-def client():
-    host = os.environ.get('SERVER_HOST', 'server')
-    port = int(os.environ.get('SERVER_PORT', '8082'))
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    connected = False
-    while not connected:
+def connect_to_server(host, port):
+    attempt = 0
+    while attempt < MAX_RETRIES:
         try:
-            sock.connect((host, port))
-            connected = True
-        except ConnectionRefusedError:
-            print("Connection refused, retrying in 2 seconds...")
-            time.sleep(2)
-    logged_in = False
-    while not logged_in:
-        logged_in = login(sock)
+            # Tenta se conectar ao servidor
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((host, port))
+            print(f"Conectado ao servidor {host}:{port}")
+            return client_socket
+        except (ConnectionRefusedError, socket.error):
+            attempt += 1
+            print(f"Falha na conexão. Tentativa {attempt} de {MAX_RETRIES}...")
+            time.sleep(RETRY_DELAY)
+
+    print("Falha em conectar ao servidor após várias tentativas.")
+    return None
+
+def send_message(client_socket, message):
+    try:
+        client_socket.sendall(json.dumps(message).encode('utf-8'))
+    except (ConnectionResetError, BrokenPipeError):
+        print("Conexão perdida. Tentando reconectar...")
+        client_socket = reconnect(client_socket)
+        if client_socket:
+            client_socket.sendall(json.dumps(message).encode('utf-8'))
+
+def reconnect(client_socket):
+    # Fecha o socket existente antes de tentar reconectar
+    client_socket.close()
+
+    # Tenta reconectar ao servidor
+    return connect_to_server('127.0.0.1', 8082)
+
+def main():
+    host = '127.0.0.1'
+    port = 8082
+
+    client_socket = connect_to_server(host, port)
+    if client_socket is None:
+        return  # Se a conexão falhar após várias tentativas, encerra o cliente
+
     try:
         while True:
-            print("\nEscolha uma ação:")
-            print("1. Listar voos")
-            print("2. Listar vagas de um voo")
-            print("3. Reservar uma vaga")
-            print("4. Sair")
-            escolha = input("Digite o número da ação desejada: ")
-            if escolha == '1':
-                request = {'action': 'listar_voos'}
-                sock.sendall(json.dumps(request).encode('utf-8'))
-                response = json.loads(sock.recv(4096).decode('utf-8'))
-                print("Voos disponíveis:", response)
-            elif escolha == '2':
-                try:
-                    voo_id = int(input("Digite o ID do voo: "))
-                except ValueError:
-                    print("ID do voo inválido.")
-                    continue
-                request = {'action': 'listar_vagas', 'voo_id': voo_id}
-                sock.sendall(json.dumps(request).encode('utf-8'))
-                response = json.loads(sock.recv(4096).decode('utf-8'))
-                print(f"Vagas disponíveis no voo {voo_id}:", response)
-            elif escolha == '3':
-                try:
-                    voo_id = int(input("Digite o ID do voo: "))
-                except ValueError:
-                    print("ID do voo inválido.")
-                    continue
+            action = input("Digite a ação (login, listar_voos, reservar_vaga): ")
+
+            if action == "login":
+                cpf = input("Digite seu CPF: ")
+                senha = input("Digite sua senha: ")
+                message = {"action": "login", "cpf": cpf, "senha": senha}
+
+            elif action == "listar_voos":
+                message = {"action": "listar_voos"}
+
+            elif action == "reservar_vaga":
+                voo_id = input("Digite o ID do voo: ")
                 assento = input("Digite o número do assento: ")
-                request = {'action': 'reservar_vaga', 'voo_id': voo_id, 'assento': assento}
-                sock.sendall(json.dumps(request).encode('utf-8'))
-                response = json.loads(sock.recv(4096).decode('utf-8'))
-                print(response)
-            elif escolha == '4':
-                print("Saindo...")
-                break
-            else:
-                print("Opção inválida.")
+                message = {"action": "reservar_vaga", "voo_id": int(voo_id), "assento": assento}
+
+            send_message(client_socket, message)
+
+            response = client_socket.recv(4096)
+            print(f"Resposta do servidor: {response.decode('utf-8')}")
+    except (KeyboardInterrupt, SystemExit):
+        print("\nCliente encerrado.")
     finally:
-        sock.close()
+        client_socket.close()
 
 if __name__ == "__main__":
-    client()
+    main()

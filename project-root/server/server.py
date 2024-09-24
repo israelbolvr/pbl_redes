@@ -8,7 +8,7 @@ import bcrypt
 
 voos = []
 passageiros = []
-lock = threading.Lock()
+global_lock = threading.Lock()  # Lock global para proteger acesso à lista de passageiros
 
 def mock_voos():
     voo1 = Voo(1, "2024-09-15", "Belém", "Fortaleza")
@@ -38,7 +38,9 @@ def handle_client(client_socket):
             if action == 'login':
                 cpf = request.get('cpf')
                 senha = request.get('senha')
-                with lock:
+
+                # Usar o lock global para acessar a lista de passageiros
+                with global_lock:
                     passageiro = next((p for p in passageiros if p.cpf == cpf), None)
                     if passageiro:
                         if bcrypt.checkpw(senha.encode('utf-8'), passageiro.senha):
@@ -47,15 +49,19 @@ def handle_client(client_socket):
                         else:
                             response = "Senha incorreta"
                     else:
+                        # Se o passageiro não existe, criar novo passageiro
                         nome = request.get('nome')
                         data_nasc = request.get('data_nasc')
                         endereco = request.get('endereco')
                         hashed_senha = bcrypt.hashpw(senha.encode('utf-8'), bcrypt.gensalt())
                         novo_passageiro = Passageiro(nome, cpf, data_nasc, endereco, hashed_senha)
+                        
+                        # Adicionar o novo passageiro à lista com proteção de lock
                         passageiros.append(novo_passageiro)
                         response = "Cadastro e login bem-sucedidos"
                         logged_in = True
                         passageiro = novo_passageiro
+
                 client_socket.sendall(json.dumps(response).encode('utf-8'))
 
         while True:
