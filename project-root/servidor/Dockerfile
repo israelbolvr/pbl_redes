@@ -13,4 +13,4 @@ RUN pip install -r requirements.txt
 EXPOSE 8082
 
 # Definir o comando padrão para rodar o servidor
-CMD ["python3", "server.py"]
+CMD ["python3", "server.py"]''

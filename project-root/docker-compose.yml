@@ -27,7 +27,20 @@ services:
       - SERVER_IP=172.16.238.10
     stdin_open: true
     tty: true
-    # command: python3 client.py
+
+  client2:
+    build:
+      context: ./cliente
+      dockerfile: Dockerfile
+    depends_on:
+      - server
+    networks:
+      voos_network:
+        ipv4_address: 172.16.238.12
+    environment:
+      - SERVER_IP=172.16.238.10
+    stdin_open: true
+    tty: true
 
   test_client:
     build:

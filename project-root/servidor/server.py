@@ -46,7 +46,8 @@ def recvall(sock, n):
     return data
 
 def mock_voos():
-    cidades = ["Belém", "Fortaleza", "São Paulo", "Rio de Janeiro", "Salvador", "Recife"]
+ #   cidades = ["Belém", "Fortaleza", "São Paulo", "Rio de Janeiro", "Salvador", "Recife"]
+    cidades = ["São Paulo", "Rio de Janeiro", "Salvador" ]
     combinacoes = list(itertools.permutations(cidades, 2))
     data_inicial = datetime.now()
 
@@ -55,7 +56,7 @@ def mock_voos():
         data_voo = data_inicial + timedelta(days=voo_id)
         voo = Voo(voo_id, data_voo.strftime("%Y-%m-%d"), saida, destino)
         # Adicionar 30 assentos numerados
-        for numero_assento in range(1, 31):
+        for numero_assento in range(1, 11):
             vaga = Vaga("disponivel", str(numero_assento), voo)
             voo.adicionar_vaga(vaga)
         voos.append(voo)
@@ -74,7 +75,7 @@ def handle_client(client_socket):
                 break
             action = data.get('action')
 
-            if action == 'login':
+            if action == 'login:
                 cpf = data.get('cpf')
                 senha = data.get('senha')
                 with passageiros_lock:

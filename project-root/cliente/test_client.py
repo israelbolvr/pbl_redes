@@ -18,6 +18,7 @@ def simulate_client(client_id, server_ip, server_port):
         request = {'action': 'login', 'cpf': cpf, 'senha': senha}
         client.send_msg(sock, request)
         response = client.recv_msg(sock)
+
         if response == "Senha incorreta":
             print(f"Cliente {client_id}: Senha incorreta.")
             sock.close()
@@ -39,29 +40,45 @@ def simulate_client(client_id, server_ip, server_port):
             sock.close()
             return
 
+        # Inicializa a lista de IDs de voos
+        voo_ids = []
+
         # Realiza algumas operações aleatórias
-        for _ in range(3):
-            action = random.choice(['listar_voos', 'listar_vagas', 'reservar_vaga'])
+        for index in range(3):
+            if(index == 0):
+                action = 'listar_voos'
+            elif(index == 1):
+                action = 'listar_vagas'
+            elif(index == 2):
+                action = 'reservar_vaga'
+                
             if action == 'listar_voos':
                 request = {'action': 'listar_voos'}
                 client.send_msg(sock, request)
                 response = client.recv_msg(sock)
                 print(f"Cliente {client_id}: Voos disponíveis recebidos.")
-                # Armazena os IDs dos voos para uso posterior
-                voo_ids = [voo[0] for voo in response]
+                voo_ids = [voo[0] for voo in response]  # Armazena os IDs dos voos para uso posterior
             elif action == 'listar_vagas':
-                voo_id = random.choice(voo_ids)
+                if not voo_ids:
+                    print(f"Cliente {client_id}: Nenhum voo disponível para listar vagas.")
+                    continue
+                voo_id = str(2)
                 request = {'action': 'listar_vagas', 'voo_id': voo_id}
                 client.send_msg(sock, request)
                 response = client.recv_msg(sock)
                 print(f"Cliente {client_id}: Vagas do voo {voo_id} recebidas.")
+
             elif action == 'reservar_vaga':
-                voo_id = random.choice(voo_ids)
-                assento = str(random.randint(1, 30))
+                if not voo_ids:
+                    print(f"Cliente {client_id}: Nenhum voo disponível para reservar vaga.")
+                    continue
+                voo_id = voo_ids[1]
+                assento = str(5)
                 request = {'action': 'reservar_vaga', 'voo_id': voo_id, 'assento': assento}
                 client.send_msg(sock, request)
                 response = client.recv_msg(sock)
-                print(f"Cliente {client_id}: {response}")
+                print(f"Cliente {client_id}: {response} voo: {voo_id}")
+
             # Simula tempo de processamento
             time.sleep(random.uniform(0.5, 2.0))
 
@@ -74,10 +91,13 @@ def simulate_client(client_id, server_ip, server_port):
             client.send_msg(sock, request)
             sock.close()
             print(f"Cliente {client_id}: Conexão encerrada normalmente.")
+
     except Exception as e:
         print(f"Cliente {client_id}: Erro - {e}")
         import traceback
         traceback.print_exc()
+
+
 
 def main():
     print("Iniciando testes com clientes simultâneos...")
