@@ -41,10 +41,7 @@ O cliente envia os dados de login ou cadastro do passageiro.
 {
     "action": "login",
     "cpf": "12345678900",
-    "senha": "senhaSegura",
-    "nome": "João Silva",
-    "data_nasc": "1990-01-01",
-    "endereco": "Rua A, 123"
+    "senha": "senhaSegura"
 }
 ```
 - **cpf**: CPF do passageiro, usado para identificação.
