@@ -7,11 +7,11 @@ services:
       dockerfile: Dockerfile
     networks:
       voos_network:
-        ipv4_address: 172.16.238.10  # IP fixo para o servidor
+        ipv4_address: 172.16.238.10
     ports:
-      - "8082:8082"  # Mapeamento de portas do host para o contêiner
+      - "8082:8082"
     expose:
-      - "8082"  # Expor a porta 8082 para outros serviços na mesma Docker network
+      - "8082"
     command: python3 server.py
 
   client1:
@@ -19,16 +19,17 @@ services:
       context: ./cliente
       dockerfile: Dockerfile
     depends_on:
-      - server  # Garante que o cliente seja iniciado apenas após o servidor estar ativo
+      - server
     networks:
       voos_network:
-        ipv4_address: 172.16.238.11  # IP fixo para o cliente 1
+        ipv4_address: 172.16.238.11
     environment:
-      - SERVER_IP=172.16.238.10  # IP fixo do servidor passado para o cliente
-    stdin_open: true  # Permite interação com o cliente
+      - SERVER_IP=172.16.238.10
+    stdin_open: true
     tty: true
+    # command: python3 client.py
 
-  client2:
+  test_client:
     build:
       context: ./cliente
       dockerfile: Dockerfile
@@ -36,11 +37,10 @@ services:
       - server
     networks:
       voos_network:
-        ipv4_address: 172.16.238.12  # IP fixo para o cliente 2
+        ipv4_address: 172.16.238.13
     environment:
-      - SERVER_IP=172.16.238.10  # IP fixo do servidor passado para o cliente
-    stdin_open: true
-    tty: true
+      - SERVER_IP=172.16.238.10
+    command: python3 test_client.py
 
 networks:
   voos_network:

@@ -6,6 +6,8 @@ from Models.Voo import Voo
 from Models.Vaga import Vaga
 from Models.Passageiro import Passageiro
 from threading import Lock
+import itertools
+from datetime import datetime, timedelta
 
 voos = []
 passageiros = []
@@ -44,15 +46,20 @@ def recvall(sock, n):
     return data
 
 def mock_voos():
-    voo1 = Voo(1, "2024-09-15", "Belém", "Fortaleza")
-    voo1.adicionar_vaga(Vaga("disponivel", "1", voo1))
-    voo1.adicionar_vaga(Vaga("disponivel", "1", voo1))
-    voos.append(voo1)
+    cidades = ["Belém", "Fortaleza", "São Paulo", "Rio de Janeiro", "Salvador", "Recife"]
+    combinacoes = list(itertools.permutations(cidades, 2))
+    data_inicial = datetime.now()
 
-    voo2 = Voo(2, "2024-09-16", "Fortaleza", "São Paulo")
-    voo2.adicionar_vaga(Vaga("disponivel", "2", voo2))
-    voo2.adicionar_vaga(Vaga("disponivel", "2", voo2))
-    voos.append(voo2)
+    voo_id = 1
+    for (saida, destino) in combinacoes:
+        data_voo = data_inicial + timedelta(days=voo_id)
+        voo = Voo(voo_id, data_voo.strftime("%Y-%m-%d"), saida, destino)
+        # Adicionar 30 assentos numerados
+        for numero_assento in range(1, 31):
+            vaga = Vaga("disponivel", str(numero_assento), voo)
+            voo.adicionar_vaga(vaga)
+        voos.append(voo)
+        voo_id += 1
 
 mock_voos()
 
@@ -113,7 +120,7 @@ def handle_client(client_socket):
                 with voos_lock:
                     voo = next((v for v in voos if v.id_voo == voo_id), None)
                 if voo:
-                    response = [(vaga.assento, vaga.status) for vaga in voo.listar_vagas_disponiveis()]
+                    response = [(vaga.assento, vaga.status) for vaga in voo.vagas]
                 else:
                     response = "Voo não encontrado"
                 send_msg(client_socket, response)
