@@ -1,6 +1,7 @@
 import socket
 import pickle
 import threading
+import struct
 from Models.Voo import Voo
 from Models.Vaga import Vaga
 from Models.Passageiro import Passageiro
@@ -13,15 +14,44 @@ passageiros = []
 voos_lock = Lock()
 passageiros_lock = Lock()
 
+def send_msg(sock, msg):
+    """Envia uma mensagem prefixada com seu tamanho."""
+    data = pickle.dumps(msg)
+    length = struct.pack('>I', len(data))
+    sock.sendall(length + data)
+
+def recv_msg(sock):
+    """Recebe uma mensagem prefixada com seu tamanho."""
+    # Primeiro, lê os 4 bytes que representam o tamanho
+    raw_msglen = recvall(sock, 4)
+    if not raw_msglen:
+        return None
+    msglen = struct.unpack('>I', raw_msglen)[0]
+    # Então, lê a quantidade exata de bytes da mensagem
+    data = recvall(sock, msglen)
+    if data is None:
+        return None
+    return pickle.loads(data)
+
+def recvall(sock, n):
+    """Função auxiliar para receber n bytes ou retornar None se EOF for atingido."""
+    data = bytearray()
+    while len(data) < n:
+        packet = sock.recv(n - len(data))
+        if not packet:
+            return None
+        data.extend(packet)
+    return data
+
 def mock_voos():
     voo1 = Voo(1, "2024-09-15", "Belém", "Fortaleza")
-    voo1.adicionar_vaga(Vaga("disponivel", "1A", voo1))
-    voo1.adicionar_vaga(Vaga("disponivel", "1B", voo1))
+    voo1.adicionar_vaga(Vaga("disponivel", "1", voo1))
+    voo1.adicionar_vaga(Vaga("disponivel", "1", voo1))
     voos.append(voo1)
 
     voo2 = Voo(2, "2024-09-16", "Fortaleza", "São Paulo")
-    voo2.adicionar_vaga(Vaga("disponivel", "2A", voo2))
-    voo2.adicionar_vaga(Vaga("disponivel", "2B", voo2))
+    voo2.adicionar_vaga(Vaga("disponivel", "2", voo2))
+    voo2.adicionar_vaga(Vaga("disponivel", "2", voo2))
     voos.append(voo2)
 
 mock_voos()
@@ -32,10 +62,9 @@ def handle_client(client_socket):
         passageiro = None
 
         while not logged_in:
-            request = client_socket.recv(4096)
-            if not request:
+            data = recv_msg(client_socket)
+            if not data:
                 break
-            data = pickle.loads(request)
             action = data.get('action')
 
             if action == 'login':
@@ -49,33 +78,36 @@ def handle_client(client_socket):
                         logged_in = True
                     else:
                         response = "Senha incorreta"
+                    send_msg(client_socket, response)
                 else:
                     response = "Novo usuário"
-                client_socket.send(pickle.dumps(response))
+                    send_msg(client_socket, response)
+            elif action == 'cadastro':
+                nome = data.get('nome')
+                cpf = data.get('cpf')
+                senha = data.get('senha')
+                novo_passageiro = Passageiro(nome, cpf, senha)
+                with passageiros_lock:
+                    passageiros.append(novo_passageiro)
+                response = "Cadastro e login bem-sucedidos"
+                logged_in = True
+                passageiro = novo_passageiro
+                send_msg(client_socket, response)
+            else:
+                response = "Ação inválida durante o login"
+                send_msg(client_socket, response)
 
-                if response == "Novo usuário":
-                    nome = data.get('nome')
-                    data_nasc = data.get('data_nasc')
-                    endereco = data.get('endereco')
-                    novo_passageiro = Passageiro(nome, cpf, data_nasc, endereco, senha)
-                    with passageiros_lock:
-                        passageiros.append(novo_passageiro)
-                    response = "Cadastro e login bem-sucedidos"
-                    logged_in = True
-                    passageiro = novo_passageiro
-                    client_socket.send(pickle.dumps(response))
-
-        while True:
-            request = client_socket.recv(4096)
-            if not request:
+        while logged_in:
+            data = recv_msg(client_socket)
+            if not data:
                 break
 
-            data = pickle.loads(request)
             action = data.get('action')
 
             if action == 'listar_voos':
                 with voos_lock:
                     response = [(voo.id_voo, voo.local_saida, voo.local_destino) for voo in voos]
+                send_msg(client_socket, response)
             elif action == 'listar_vagas':
                 voo_id = data.get('voo_id')
                 with voos_lock:
@@ -84,29 +116,32 @@ def handle_client(client_socket):
                     response = [(vaga.assento, vaga.status) for vaga in voo.listar_vagas_disponiveis()]
                 else:
                     response = "Voo não encontrado"
+                send_msg(client_socket, response)
             elif action == 'reservar_vaga':
                 voo_id = data.get('voo_id')
                 assento = data.get('assento')
                 with voos_lock:
                     voo = next((v for v in voos if v.id_voo == voo_id), None)
-                if voo:
-                    vaga = next((v for v in voo.vagas if v.assento == assento), None)
-                    if vaga and vaga.reservar():
-                        response = f"Assento {assento} reservado com sucesso."
+                    if voo:
+                        vaga = next((v for v in voo.vagas if v.assento == assento), None)
+                        if vaga and vaga.reservar():
+                            response = f"Assento {assento} reservado com sucesso."
+                        else:
+                            response = "Assento indisponível ou não encontrado."
                     else:
-                        response = "Assento indisponível ou não encontrado."
-                else:
-                    response = "Voo não encontrado"
+                        response = "Voo não encontrado"
+                send_msg(client_socket, response)
             elif action == 'sair':
                 response = "Desconectado"
-                client_socket.send(pickle.dumps(response))
+                send_msg(client_socket, response)
                 break
             else:
                 response = "Ação inválida"
-
-            client_socket.send(pickle.dumps(response))
+                send_msg(client_socket, response)
     except Exception as e:
         print(f"Erro ao lidar com cliente: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         client_socket.close()
 

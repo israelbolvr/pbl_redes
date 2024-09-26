@@ -2,6 +2,7 @@ import socket
 import pickle
 import os
 import time
+import struct
 
 SERVER_IP = os.getenv('SERVER_IP', '127.0.0.1')
 SERVER_PORT = 8082
@@ -9,12 +10,43 @@ SERVER_PORT = 8082
 MAX_RETRIES = 5
 RETRY_DELAY = 5  # segundos entre as tentativas de conexão
 
+def send_msg(sock, msg):
+    """Envia uma mensagem prefixada com seu tamanho."""
+    data = pickle.dumps(msg)
+    length = struct.pack('>I', len(data))
+    sock.sendall(length + data)
+
+def recv_msg(sock):
+    """Recebe uma mensagem prefixada com seu tamanho."""
+    # Primeiro, lê os 4 bytes que representam o tamanho
+    raw_msglen = recvall(sock, 4)
+    if not raw_msglen:
+        return None
+    msglen = struct.unpack('>I', raw_msglen)[0]
+    # Então, lê a quantidade exata de bytes da mensagem
+    data = recvall(sock, msglen)
+    if data is None:
+        return None
+    return pickle.loads(data)
+
+def recvall(sock, n):
+    """Função auxiliar para receber n bytes ou retornar None se EOF for atingido."""
+    data = bytearray()
+    while len(data) < n:
+        packet = sock.recv(n - len(data))
+        if not packet:
+            return None
+        data.extend(packet)
+    return data
+
 def login(sock):
+    input("\nPressione Enter para continuar...")
+    print("\nFaça login ou cadastre-se:")
     cpf = input("Digite seu CPF: ")
     senha = input("Digite sua senha: ")
     request = {'action': 'login', 'cpf': cpf, 'senha': senha}
-    sock.send(pickle.dumps(request))
-    response = pickle.loads(sock.recv(4096))
+    send_msg(sock, request)
+    response = recv_msg(sock)
     if response == "Senha incorreta":
         print("Senha incorreta. Tente novamente.")
         return False
@@ -23,11 +55,14 @@ def login(sock):
         return True
     elif response == "Novo usuário":
         nome = input("Digite seu nome: ")
-        data_nasc = input("Digite sua data de nascimento (AAAA-MM-DD): ")
-        endereco = input("Digite seu endereço: ")
-        request.update({'nome': nome, 'data_nasc': data_nasc, 'endereco': endereco})
-        sock.send(pickle.dumps(request))
-        response = pickle.loads(sock.recv(4096))
+        request = {
+            'action': 'cadastro',
+            'cpf': cpf,
+            'senha': senha,
+            'nome': nome
+        }
+        send_msg(sock, request)
+        response = recv_msg(sock)
         if response == "Cadastro e login bem-sucedidos":
             print("Cadastro e login bem-sucedidos!")
             return True
@@ -72,6 +107,7 @@ def client(host=SERVER_IP, port=SERVER_PORT):
 
     try:
         while True:
+
             print("\nEscolha uma ação:")
             print("1. Listar voos")
             print("2. Listar vagas de um voo")
@@ -81,17 +117,20 @@ def client(host=SERVER_IP, port=SERVER_PORT):
 
             if escolha == '1':
                 request = {'action': 'listar_voos'}
-                sock.send(pickle.dumps(request))
-                response = pickle.loads(sock.recv(4096))
+                send_msg(sock, request)
+                response = recv_msg(sock)
                 print("Voos disponíveis:")
-                for voo in response:
-                    print(f"ID: {voo[0]}, De: {voo[1]}, Para: {voo[2]}")
+                if isinstance(response, list):
+                    for voo in response:
+                        print(f"ID: {voo[0]}, De: {voo[1]}, Para: {voo[2]}")
+                else:
+                    print(response)
 
             elif escolha == '2':
                 voo_id = int(input("Digite o ID do voo: "))
                 request = {'action': 'listar_vagas', 'voo_id': voo_id}
-                sock.send(pickle.dumps(request))
-                response = pickle.loads(sock.recv(4096))
+                send_msg(sock, request)
+                response = recv_msg(sock)
                 if isinstance(response, str):
                     print(response)
                 else:
@@ -103,13 +142,13 @@ def client(host=SERVER_IP, port=SERVER_PORT):
                 voo_id = int(input("Digite o ID do voo: "))
                 assento = input("Digite o número do assento: ")
                 request = {'action': 'reservar_vaga', 'voo_id': voo_id, 'assento': assento}
-                sock.send(pickle.dumps(request))
-                response = pickle.loads(sock.recv(4096))
+                send_msg(sock, request)
+                response = recv_msg(sock)
                 print(response)
 
             elif escolha == '4':
                 request = {'action': 'sair'}
-                sock.send(pickle.dumps(request))
+                send_msg(sock, request)
                 print("Saindo...")
                 break
             else:
