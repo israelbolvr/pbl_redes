@@ -10,4 +10,4 @@ class Voo:
         self.vagas.append(vaga)
 
     def listar_vagas_disponiveis(self):
-        return [vaga for vaga in self.vagas if vaga.status == "disponivel"]
+        return [vaga for vaga in self.vagas if vaga.status == 'disponivel']
