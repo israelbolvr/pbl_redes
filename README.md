@@ -9,16 +9,17 @@ Este relatório documenta o **Sistema de Compra de Passagens Aéreas**, desenvol
 
 ## Arquitetura da Solução
 
-A arquitetura do sistema foi desenvolvida utilizando o modelo cliente-servidor, com comunicação baseada em sockets TCP e troca de mensagens serializadas com o módulo **pickle** do Python. Os componentes e seus papéis na arquitetura são:
+A arquitetura do sistema foi desenvolvida utilizando o modelo cliente-servidor, com comunicação baseada em sockets TCP e troca de mensagens prefixadas. Os componentes e seus papéis na arquitetura são:
 
-- **Servidor** (`server.py`): Responsável por gerenciar os recursos do sistema, como voos, vagas e passageiros. Ele lida com múltiplas conexões de clientes simultaneamente, utilizando threads para cada conexão. O servidor mantém o estado das sessões dos passageiros durante a interação e utiliza mecanismos de sincronização para garantir a integridade dos dados em um ambiente multithread.
+- **Servidor** (`server.py`): Responsável por gerenciar os recursos do sistema, como voos, vagas e passageiros. Ele lida com múltiplas conexões de clientes simultaneamente, utilizando threads para cada conexão. O servidor mantém o estado das sessões dos passageiros durante a interação.
 
-- **Clientes** (`client.py`): Aplicações que permitem aos passageiros interagir com o sistema, realizando operações como login, consulta de voos e reserva de assentos. Cada cliente é executado em um contêiner Docker separado para simular usuários distintos.
+- **Clientes** (`client.py` e `test_client.py`): Aplicações que permitem aos passageiros interagir com o sistema, realizando operações como login, consulta de voos e reserva de assentos. O `client.py` permite interação manual, enquanto o `test_client.py` simula múltiplos clientes para testes de conexões simultâneas e perda de conexão. Cada cliente é executado em um contêiner Docker separado para simular usuários distintos.
 
 - **Modelos** (`Models/`): Contém as classes que representam as entidades do sistema:
-  - `Voo.py`: Representa um voo, contendo informações como ID, data, local de saída e destino, e uma lista de vagas.
-  - `Vaga.py`: Representa uma vaga (assento) em um voo, incluindo status e métodos para reservar o assento.
+  - `Voo.py`: Representa um voo, contendo informações como ID, data, local de saída e destino.
+  - `Vaga.py`: Representa uma vaga (assento) em um voo, incluindo status e controle de concorrência.
   - `Passageiro.py`: Representa um passageiro, com dados pessoais e autenticação.
+  - `Passagem.py`: Representa uma passagem emitida para um passageiro específico.
 
 ## Paradigma de Comunicação
 
@@ -26,11 +27,11 @@ O paradigma de serviço utilizado é o **stateful**. O servidor mantém o estado
 
 ### Protocolo de Comunicação
 
-O protocolo de comunicação entre o cliente e o servidor no **Sistema de Compra de Passagens Aéreas** foi desenvolvido utilizando sockets TCP e mensagens serializadas com o módulo **pickle** do Python. Esse protocolo garante a troca de informações de forma estruturada, permitindo que operações como login, listagem de voos, consulta de vagas e reservas de assentos sejam realizadas com segurança e eficiência.
+O protocolo de comunicação entre o cliente e o servidor utiliza sockets TCP com mensagens prefixadas pelo tamanho, garantindo a entrega completa dos dados. As mensagens são serializadas usando o módulo `pickle` do Python, com um prefixo de 4 bytes indicando o tamanho da mensagem.
 
 #### Estrutura das Mensagens
 
-As mensagens trocadas entre o cliente e o servidor são dicionários Python serializados com o **pickle**. Cada mensagem inclui um campo de **ação** e dados específicos para cada operação.
+As mensagens trocadas entre o cliente e o servidor seguem uma estrutura padronizada de dicionários Python serializados, que incluem um campo de **ação** e dados específicos para cada operação.
 
 ##### 1. **Login de Passageiro**
 
@@ -48,39 +49,43 @@ O cliente envia os dados de login ou cadastro do passageiro.
 
 - **cpf**: CPF do passageiro, usado para identificação.
 - **senha**: Senha do passageiro.
-- **nome**, **data_nasc**, **endereco**: Dados enviados apenas no primeiro login (caso o passageiro não esteja cadastrado).
 
 **Resposta do Servidor:**
 
 - Se o login for bem-sucedido:
 
-```python
-"Login bem-sucedido"
-```
+  ```python
+  "Login bem-sucedido"
+  ```
 
 - Se a senha estiver incorreta:
 
-```python
-"Senha incorreta"
-```
+  ```python
+  "Senha incorreta"
+  ```
 
-- Se o passageiro não estiver cadastrado (novo usuário):
+- Se o passageiro não estiver cadastrado:
 
-```python
-"Novo usuário"
-```
+  ```python
+  "Novo usuário"
+  ```
 
-O cliente, ao receber "Novo usuário", envia os dados adicionais para cadastro:
+  O cliente, então, envia uma mensagem de cadastro.
+
+##### Mensagem de Cadastro:
+
+**Mensagem do Cliente:**
 
 ```python
 {
-    "action": "login",
+    "action": "cadastro",
     "cpf": "12345678900",
     "senha": "senhaSegura",
+    "nome": "Nome do Passageiro"
 }
 ```
 
-E o servidor responde:
+**Resposta do Servidor:**
 
 ```python
 "Cadastro e login bem-sucedidos"
@@ -103,11 +108,17 @@ O cliente solicita a lista de todos os voos disponíveis no sistema.
 ```python
 [
     (1, "Belém", "Fortaleza"),
-    (2, "Fortaleza", "São Paulo")
+    (2, "Fortaleza", "São Paulo"),
+    (3, "São Paulo", "Rio de Janeiro"),
+    ...
 ]
 ```
 
-Cada tupla representa um voo com seu ID, local de saída e local de destino.
+Cada tupla contém:
+
+- **ID do Voo**: Identificador único do voo.
+- **Local de Saída**: Cidade de origem.
+- **Local de Destino**: Cidade de destino.
 
 ##### 3. **Listar Vagas Disponíveis**
 
@@ -126,20 +137,19 @@ O cliente solicita as vagas disponíveis em um voo específico.
 
 **Resposta do Servidor:**
 
-Se o voo for encontrado:
-
 ```python
 [
-    ("1A", "disponivel"),
-    ("1B", "disponivel")
+    ("1", "disponivel"),
+    ("2", "disponivel"),
+    ("3", "reservado"),
+    ...
 ]
 ```
 
-Se o voo não for encontrado:
+Cada tupla contém:
 
-```python
-"Voo não encontrado"
-```
+- **Assento**: Número do assento.
+- **Status**: "disponivel" ou "reservado".
 
 ##### 4. **Reservar Vaga**
 
@@ -151,7 +161,7 @@ O cliente solicita a reserva de um assento específico em um voo.
 {
     "action": "reservar_vaga",
     "voo_id": 1,
-    "assento": "1A"
+    "assento": "1"
 }
 ```
 
@@ -162,15 +172,15 @@ O cliente solicita a reserva de um assento específico em um voo.
 
 - Se a reserva for bem-sucedida:
 
-```python
-"Assento 1A reservado com sucesso."
-```
+  ```python
+  "Assento 1 reservado com sucesso."
+  ```
 
-- Se o assento não estiver disponível ou não for encontrado:
+- Se o assento não estiver disponível:
 
-```python
-"Assento indisponível ou não encontrado."
-```
+  ```python
+  "Assento indisponível ou não encontrado."
+  ```
 
 #### Sequência de Mensagens
 
@@ -181,11 +191,17 @@ A sequência de mensagens geralmente segue esta ordem:
 3. O cliente seleciona um voo e solicita a **listagem de vagas** disponíveis.
 4. O cliente seleciona uma vaga e realiza a **reserva de assento**.
 
-Esse protocolo garante que o cliente possa navegar pelas opções de voos, consultar assentos e finalizar a reserva de maneira eficiente.
+Esse protocolo garante que o cliente possa navegar pelas opções de voos, consultar assentos e finalizar a reserva de maneira eficiente, com respostas estruturadas para cada operação.
 
 ## Formatação e Tratamento de Dados
 
-A formatação dos dados transmitidos utiliza o módulo **pickle** do Python, que serializa objetos Python em um formato binário. Embora o uso do pickle seja eficiente dentro de um ambiente controlado, é importante notar que ele não é seguro contra dados maliciosos e não deve ser usado com dados não confiáveis. No contexto deste projeto, onde tanto o cliente quanto o servidor estão sob nosso controle, o uso do pickle simplifica a serialização e desserialização de objetos complexos.
+A formatação dos dados transmitidos utiliza a serialização com `pickle`, permitindo a transmissão de estruturas de dados complexas do Python. Para garantir a entrega completa das mensagens, foi implementado um protocolo de comunicação com prefixo de tamanho:
+
+- **Envio de Mensagens (`send_msg`)**: As mensagens são serializadas com `pickle`, e um prefixo de 4 bytes contendo o tamanho da mensagem é adicionado antes do envio.
+
+- **Recebimento de Mensagens (`recv_msg`)**: O receptor lê primeiro os 4 bytes iniciais para determinar o tamanho da mensagem e, em seguida, lê exatamente esse número de bytes para obter a mensagem completa.
+
+Esse mecanismo assegura que as mensagens sejam recebidas integralmente, evitando problemas de dados incompletos ou corrompidos.
 
 ## Tratamento de Conexões Simultâneas
 
@@ -193,40 +209,69 @@ O sistema permite a realização de compras de passagens de forma paralela ou si
 
 ## Tratamento de Concorrência
 
-Para garantir a integridade dos dados em um ambiente multithread, foram implementados mecanismos de sincronização utilizando o módulo `threading.Lock` do Python. Locks são utilizados para proteger o acesso aos recursos compartilhados, como as listas de voos e passageiros.
+Para garantir a integridade dos dados em operações concorrentes, foram utilizados mecanismos de sincronização:
 
-- **Locks Implementados:**
-  - `voos_lock`: Protege o acesso à lista de voos (`voos`).
-  - `passageiros_lock`: Protege o acesso à lista de passageiros (`passageiros`).
+- **Locks**: Foram criados locks (`Lock`) para proteger o acesso às listas compartilhadas de voos e passageiros. Sempre que uma thread precisa acessar ou modificar essas listas, ela adquire o lock correspondente, garantindo exclusão mútua.
 
-Sempre que uma thread (cliente) precisa acessar ou modificar esses recursos, ela adquire o lock correspondente antes de realizar a operação, garantindo que apenas uma thread por vez possa modificar os dados compartilhados.
+- **Exemplo de Uso de Locks**:
 
-Exemplo de uso:
+  ```python
+  with passageiros_lock:
+      # Operações seguras na lista de passageiros
+      passageiros.append(novo_passageiro)
+  ```
 
-```python
-with passageiros_lock:
-    passageiro = next((p for p in passageiros if p.cpf == cpf), None)
-```
+Esse tratamento evita condições de corrida e garante que os dados não sejam corrompidos por acessos simultâneos.
 
 ## Desempenho e Avaliação
 
-O sistema utiliza **threads** para melhorar o tempo de resposta e **locks** para garantir a integridade dos dados. Foram realizados testes práticos com múltiplos clientes simultâneos para avaliar o comportamento do sistema. Os resultados mostraram que o sistema é capaz de atender várias requisições ao mesmo tempo sem comprometer a consistência dos dados. A sincronização com locks introduz um pequeno overhead, mas é essencial para evitar condições de corrida.
+O sistema utiliza threads para melhorar o tempo de resposta e locks para garantir a integridade dos dados. Foram realizados testes práticos com múltiplos clientes simultâneos utilizando o script `test_client.py`, que simula conexões simultâneas e perda de conexão. Os resultados mostraram que o sistema é capaz de atender várias requisições ao mesmo tempo sem comprometer a consistência dos dados.
 
 ## Confiabilidade da Solução
 
-A solução implementa mecanismos para melhorar a confiabilidade em cenários de falha de conexão entre o cliente e o servidor. A lógica de reconexão automática foi adicionada ao cliente, garantindo que, caso a conexão com o servidor seja perdida, o cliente tentará se reconectar automaticamente até um número máximo de tentativas.
+A solução implementa mecanismos para melhorar a confiabilidade em cenários de falha de conexão entre o cliente e o servidor:
 
-No **cliente**, a função `connect_with_retry` tenta estabelecer a conexão com o servidor, realizando múltiplas tentativas com intervalos de espera definidos. Isso melhora a robustez do sistema em cenários de falhas temporárias na rede ou reinicialização do servidor.
+- **Reconexão Automática**: O cliente inclui lógica de reconexão automática, tentando se conectar novamente ao servidor em caso de falhas temporárias na rede.
+
+- **Tratamento de Exceções**: O servidor e o cliente foram equipados com tratamento de exceções para lidar com erros inesperados sem interromper o funcionamento do sistema.
+
+- **Simulação de Perda de Conexão**: O `test_client.py` simula perdas de conexão abruptas para testar a robustez do servidor em lidar com desconexões inesperadas.
+
+Essas medidas aumentam a robustez do sistema, garantindo que ele continue operando corretamente mesmo em condições adversas.
 
 ## Documentação do Código
 
-O código foi escrito de forma **autoexplicativa**, com nomes de variáveis, funções e classes que refletem claramente suas responsabilidades. Além disso, comentários foram adicionados em trechos complexos para auxiliar na compreensão.
+O código foi escrito de forma clara e estruturada, com nomes de variáveis, funções e classes que refletem suas responsabilidades. Além disso, comentários foram adicionados em trechos complexos para auxiliar na compreensão. Funções principais, como `send_msg`, `recv_msg`, `handle_client`, e as classes dos modelos, estão bem documentadas.
 
 ## Emprego do Docker
 
 Utilizamos o **Docker** para contêinerizar o servidor e os clientes, facilitando a implantação e a execução do sistema em diferentes ambientes. O uso do `docker-compose` permite orquestrar múltiplos contêineres de clientes e o servidor de forma simples, simulando um ambiente com vários usuários interagindo simultaneamente.
 
-Cada serviço (servidor e clientes) possui seu próprio Dockerfile, e o `docker-compose.yml` configura a rede, os endereços IP fixos e as dependências entre os serviços.
+### Arquivo `docker-compose.yml`
+
+O `docker-compose.yml` define os serviços:
+
+- **Servidor**: Inicia o `server.py` e expõe a porta 8082.
+- **Cliente**: Inicia o `client.py` para interação manual.
+- **Test_Client**: Inicia o `test_client.py` para testes automatizados.
+
+Exemplo de trecho do `docker-compose.yml`:
+
+```yaml
+test_client:
+  build:
+    context: ./cliente
+    dockerfile: Dockerfile
+  depends_on:
+    - server
+  networks:
+    voos_network:
+      ipv4_address: 172.16.238.13
+  environment:
+    - SERVER_IP=172.16.238.10
+    - PYTHONUNBUFFERED=1
+  command: python3 -u test_client.py
+```
 
 ## Executando o Sistema
 
@@ -237,66 +282,51 @@ Cada serviço (servidor e clientes) possui seu próprio Dockerfile, e o `docker-
 
 ### Passo a Passo
 
-1. **Clone o repositório:**
+1. **Clone o repositório**:
 
     ```bash
     git clone https://github.com/seu-usuario/pbl_redes_aeroporto.git
     cd pbl_redes_aeroporto
     ```
 
-2. **Construa as imagens Docker:**
+2. **Construa as imagens Docker**:
 
     ```bash
     docker-compose build
     ```
 
-3. **Inicie os serviços:**
+3. **Inicie os serviços** (servidor, cliente e teste de clientes):
 
     ```bash
     docker-compose up
     ```
 
-4. **Acesse os clientes:**
-
-    Como os clientes estão configurados para permitir interação (`stdin_open: true` e `tty: true`), você pode acessar os terminais dos clientes em janelas separadas.
-
-    Em um novo terminal, execute:
+4. **Acesse os logs do cliente ou do servidor** para visualizar as interações:
 
     ```bash
-    docker attach pbl_redes_aeroporto_client1_1
+    docker-compose logs -f client1
+    docker-compose logs -f server
+    docker-compose logs -f test_client
     ```
 
-    E em outro terminal:
+5. **Interaja com o cliente manualmente**:
+
+    Abra um novo terminal e execute:
 
     ```bash
-    docker attach pbl_redes_aeroporto_client2_1
+    docker attach project-root-client1-1
+    
     ```
-
-    *Substitua `pbl_redes_aeroporto` pelo nome do seu projeto ou pelo nome dado ao contêiner.*
-
-5. **Interaja com os clientes:**
-
-    Agora você pode interagir com os clientes, fazer login, listar voos, reservar vagas, etc.
-
-6. **Parar os serviços:**
-
-    Quando terminar os testes, você pode parar os contêineres com:
-
-    ```bash
-    docker-compose down
-    ```
+    Aperte enter para iniciar a interação
 
 ## Conclusão
 
-Este projeto demonstrou a construção de um sistema distribuído cliente-servidor para uma companhia aérea low-cost, utilizando sockets TCP/IP, threads para concorrência e contêineres Docker para implantação. Abordamos os desafios de comunicação, concorrência e paralelismo, implementando soluções para garantir a integridade dos dados e a eficiência do sistema.
-
-A utilização do módulo **pickle** para serialização facilitou o desenvolvimento, embora em aplicações reais seja recomendável o uso de protocolos mais seguros e padronizados, como JSON ou Protobuf.
-
-Implementamos mecanismos de sincronização para evitar condições de corrida em um ambiente multithread e adicionamos lógica de reconexão para aumentar a robustez do sistema.
+Este projeto demonstrou a construção de um sistema distribuído cliente-servidor para uma companhia aérea low-cost, utilizando sockets TCP/IP com mensagens prefixadas, threads para concorrência e contêineres Docker para implantação. Abordamos os desafios de comunicação, concorrência e paralelismo, implementando soluções para garantir a integridade dos dados e a eficiência do sistema. O sistema mostrou-se robusto e escalável, capaz de lidar com múltiplas conexões simultâneas e situações de perda de conexão. Embora haja espaço para melhorias, especialmente em termos de persistência de dados e segurança, o sistema atende aos requisitos básicos e serve como base para desenvolvimentos futuros.
 
 ## Referências
 
 - [Documentação do Python - Módulo socket](https://docs.python.org/3/library/socket.html)
 - [Documentação do Python - Módulo threading](https://docs.python.org/3/library/threading.html)
-- [Documentação do Python - Módulo pickle](https://docs.python.org/3/library/pickle.html)
+- [Documentação do Python - Módulo struct](https://docs.python.org/3/library/struct.html)
 - [Docker Documentation](https://docs.docker.com)
+- [Python Pickle Module](https://docs.python.org/3/library/pickle.html)
